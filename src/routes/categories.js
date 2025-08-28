@@ -1,5 +1,6 @@
 const express = require('express')
 const { authMiddleware, adminMiddleware } = require('../middleware/auth')
+const CategoriesController = require('../controllers/categoriesController')
 
 const router = express.Router()
 
@@ -10,15 +11,31 @@ router.use(adminMiddleware)
 // @route   GET /api/categories
 // @desc    Get all categories (admin)
 // @access  Private (Admin)
-router.get('/', async (req, res) => {
-  res.json({ message: 'Admin categories endpoint - To be implemented' })
-})
+router.get('/', CategoriesController.getAllCategories)
+
+// @route   GET /api/categories/tree
+// @desc    Get category tree (admin)
+// @access  Private (Admin)
+router.get('/tree', CategoriesController.getCategoryTree)
 
 // @route   POST /api/categories
 // @desc    Create new category
 // @access  Private (Admin)
-router.post('/', async (req, res) => {
-  res.json({ message: 'Create category endpoint - To be implemented' })
-})
+router.post('/', CategoriesController.getValidationRules(), CategoriesController.createCategory)
+
+// @route   GET /api/categories/:id
+// @desc    Get category by ID
+// @access  Private (Admin)
+router.get('/:id', CategoriesController.getCategoryById)
+
+// @route   PUT /api/categories/:id
+// @desc    Update category
+// @access  Private (Admin)
+router.put('/:id', CategoriesController.getValidationRules(), CategoriesController.updateCategory)
+
+// @route   DELETE /api/categories/:id
+// @desc    Delete category
+// @access  Private (Admin)
+router.delete('/:id', CategoriesController.deleteCategory)
 
 module.exports = router

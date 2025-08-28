@@ -42,7 +42,21 @@ app.use(helmet({
 
 // CORS configuration
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: function (origin, callback) {
+    const allowedOrigins = process.env.CORS_ORIGIN 
+      ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+      : ['http://localhost:3000']
+    
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true)
+    
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true)
+    } else {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.'
+      return callback(new Error(msg), false)
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -170,8 +184,12 @@ async function startServer() {
       await sequelize.sync({ force: false })
       console.log('✅ Synchronisation des modèles de base de données terminée.')
 
-      // Create default admin user
+      // Create default admin users
       await require('./src/utils/createDefaultAdmin')()
+      
+      // Seed initial data (categories and products) - temporarily disabled
+      // const SeedData = require('./src/utils/seedData')
+      // await SeedData.seedAll()
     }
 
     // Start server

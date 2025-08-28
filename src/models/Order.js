@@ -110,7 +110,7 @@ const Order = sequelize.define('Order', {
   
   // Payment Information
   payment_status: {
-    type: DataTypes.ENUM('pending', 'processing', 'completed', 'failed', 'cancelled', 'refunded'),
+    type: DataTypes.ENUM('pending', 'processing', 'completed', 'partial', 'failed', 'cancelled', 'refunded'),
     defaultValue: 'pending',
     allowNull: false
   },
@@ -123,6 +123,21 @@ const Order = sequelize.define('Order', {
   payment_reference: {
     type: DataTypes.STRING,
     allowNull: true
+  },
+
+  // Delivery payment options
+  delivery_option: {
+    type: DataTypes.ENUM('full_payment', 'pay_on_delivery'),
+    defaultValue: 'full_payment',
+    allowNull: false,
+    comment: 'Payment option: full payment or pay only delivery fee now'
+  },
+
+  remaining_balance: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false,
+    defaultValue: 0,
+    comment: 'Amount remaining to be paid on delivery'
   },
   
   // Shipping Information
@@ -156,6 +171,18 @@ const Order = sequelize.define('Order', {
   cancelled_at: {
     type: DataTypes.DATE,
     allowNull: true
+  },
+
+  completed_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'When order was completed/delivered'
+  },
+
+  estimated_delivery: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Estimated delivery date'
   },
   
   // Additional Information

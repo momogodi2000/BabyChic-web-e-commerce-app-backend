@@ -265,119 +265,71 @@ router.get('/categories', async (req, res) => {
 })
 
 // @route   POST /api/public/orders
-// @desc    Create new order
+// @desc    Create new order with delivery payment options
 // @access  Public
 router.post('/orders', async (req, res) => {
+  const transaction = await sequelize.transaction()
+  
   try {
     const {
       items,
       customer,
       delivery,
-      payment
+      payment,
+      deliveryOnly = false // New option: pay only delivery fees (2000 FCFA)
     } = req.body
 
     // Validate required fields
     if (!items || !items.length) {
+      await transaction.rollback()
       return res.status(400).json({
         error: 'Articles requis'
       })
     }
 
     if (!customer || !customer.firstName || !customer.lastName || !customer.email || !customer.phone) {
+      await transaction.rollback()
       return res.status(400).json({
         error: 'Informations client incomplètes'
       })
     }
 
     if (!delivery || !delivery.address || !delivery.city) {
+      await transaction.rollback()
       return res.status(400).json({
         error: 'Informations de livraison incomplètes'
       })
     }
 
-    // Calculate totals
-    let subtotal = 0
-    const orderItems = []
+    // Use OrdersController to create order
+    const OrdersController = require('../controllers/ordersController')
+    const { order, orderItems, paymentRecord } = await OrdersController.createOrder({
+      items,
+      customer,
+      delivery,
+      payment,
+      deliveryOnly
+    }, transaction)
 
-    for (const item of items) {
-      const product = await Product.findByPk(item.id)
-      
-      if (!product) {
-        return res.status(400).json({
-          error: `Produit non trouvé: ${item.id}`
-        })
-      }
+    // Send email confirmation to customer
+    const emailService = require('../utils/emailService')
+    const smsService = require('../utils/smsService')
 
-      if (!product.isInStock() && product.track_stock) {
-        return res.status(400).json({
-          error: `Produit en rupture de stock: ${product.name}`
-        })
-      }
-
-      const quantity = parseInt(item.quantity) || 1
-      const unitPrice = parseFloat(product.price)
-      const totalPrice = unitPrice * quantity
-
-      subtotal += totalPrice
-
-      orderItems.push({
-        product_id: product.id,
-        product_name: product.name,
-        product_sku: product.sku,
-        product_image: product.featured_image,
-        variant_info: item.selectedSize ? { size: item.selectedSize } : null,
-        unit_price: unitPrice,
-        quantity: quantity,
-        total_price: totalPrice
-      })
+    try {
+      await emailService.sendOrderConfirmation(order, orderItems)
+      await emailService.sendAdminOrderNotification(order, orderItems)
+    } catch (emailError) {
+      console.error('Email notification error:', emailError)
     }
 
-    // Calculate shipping cost (free shipping for orders >= 25000 FCFA)
-    const shippingCost = subtotal >= 25000 ? 0 : 2500
-    const totalAmount = subtotal + shippingCost
-
-    // Create order
-    const order = await Order.create({
-      customer_email: customer.email,
-      customer_phone: customer.phone,
-      customer_first_name: customer.firstName,
-      customer_last_name: customer.lastName,
-      billing_address: {
-        address: delivery.address,
-        city: delivery.city,
-        quarter: delivery.quarter,
-        landmark: delivery.landmark
-      },
-      shipping_address: {
-        address: delivery.address,
-        city: delivery.city,
-        quarter: delivery.quarter,
-        landmark: delivery.landmark
-      },
-      subtotal: subtotal,
-      shipping_cost: shippingCost,
-      total_amount: totalAmount,
-      payment_method: payment.method
-    })
-
-    // Create order items
-    for (const itemData of orderItems) {
-      await OrderItem.create({
-        ...itemData,
-        order_id: order.id
-      })
+    try {
+      await smsService.sendOrderConfirmationSMS(order)
+      await smsService.sendAdminOrderNotificationSMS(order)
+    } catch (smsError) {
+      console.error('SMS notification error:', smsError)
     }
 
-    // Create payment record
-    const paymentRecord = await Payment.create({
-      order_id: order.id,
-      payment_method: payment.method,
-      amount: totalAmount,
-      status: 'pending',
-      customer_phone: customer.phone,
-      customer_name: `${customer.firstName} ${customer.lastName}`,
-      description: `Payment for order ${order.order_number}`
-    })
+    await transaction.commit()
 
     res.status(201).json({
       message: 'Commande créée avec succès',
@@ -386,21 +338,74 @@ router.post('/orders', async (req, res) => {
         orderNumber: order.order_number,
         status: order.status,
         total: parseFloat(order.total_amount),
+        remainingBalance: parseFloat(order.remaining_balance || 0),
         paymentStatus: order.payment_status,
         paymentMethod: order.payment_method,
+        deliveryOption: order.delivery_option,
         createdAt: order.created_at
       },
       payment: {
         transactionId: paymentRecord.transaction_id,
         status: paymentRecord.status,
-        method: paymentRecord.payment_method
+        amount: parseFloat(paymentRecord.amount),
+        method: paymentRecord.payment_method,
+        description: paymentRecord.description
+      },
+      receipt: {
+        available: true,
+        downloadUrl: `/api/public/orders/${order.id}/receipt`
       }
     })
 
   } catch (error) {
+    await transaction.rollback()
     console.error('Create order error:', error)
     res.status(500).json({
       error: 'Erreur lors de la création de la commande'
+    })
+  }
+})
+
+// @route   GET /api/public/orders/:id/receipt
+// @desc    Download order receipt
+// @access  Public
+router.get('/orders/:id/receipt', async (req, res) => {
+  try {
+    const { id } = req.params
+    
+    const order = await Order.findByPk(id, {
+      include: [
+        {
+          model: OrderItem,
+          as: 'items',
+          include: [
+            {
+              model: Product,
+              as: 'product',
+              attributes: ['id', 'name', 'sku']
+            }
+          ]
+        }
+      ]
+    })
+
+    if (!order) {
+      return res.status(404).json({
+        error: 'Commande non trouvée'
+      })
+    }
+
+    // Generate receipt data
+    const OrdersController = require('../controllers/ordersController')
+    const receiptData = await OrdersController.generateReceipt(order, order.items)
+
+    res.json({
+      receipt: receiptData
+    })
+  } catch (error) {
+    console.error('Get receipt error:', error)
+    res.status(500).json({
+      error: 'Erreur lors de la génération du reçu'
     })
   }
 })
