@@ -345,6 +345,91 @@ class OrdersController {
     }
   }
 
+  // Validate payment (admin)
+  static async validatePayment(req, res) {
+    try {
+      const { id } = req.params
+      const { approved = true, notes = '' } = req.body
+
+      const order = await Order.findByPk(id, {
+        include: [
+          {
+            model: Payment,
+            as: 'payments'
+          }
+        ]
+      })
+
+      if (!order) {
+        return res.status(404).json({
+          error: 'Commande non trouvée'
+        })
+      }
+
+      // Update payment status
+      const newPaymentStatus = approved ? 'paid' : 'failed'
+      const newOrderStatus = approved ? 'confirmed' : order.status
+
+      await order.update({
+        payment_status: newPaymentStatus,
+        status: newOrderStatus,
+        notes: notes ? (order.notes ? `${order.notes}\n${notes}` : notes) : order.notes
+      })
+
+      // Update associated payment records
+      if (order.payments && order.payments.length > 0) {
+        for (const payment of order.payments) {
+          await payment.update({
+            status: approved ? 'completed' : 'failed',
+            verified_at: new Date(),
+            payment_data: {
+              ...payment.payment_data,
+              admin_validation: {
+                approved,
+                notes,
+                validated_by: req.user.id,
+                validated_at: new Date()
+              }
+            }
+          })
+        }
+      }
+
+      // Send notification if payment was approved
+      if (approved) {
+        await OrdersController.sendStatusChangeNotifications(order, 'confirmed')
+      }
+
+      res.json({
+        message: approved ? 'Paiement validé avec succès' : 'Paiement rejeté',
+        order: await Order.findByPk(id, {
+          include: [
+            {
+              model: OrderItem,
+              as: 'items',
+              include: [
+                {
+                  model: Product,
+                  as: 'product',
+                  attributes: ['id', 'name', 'featured_image', 'price']
+                }
+              ]
+            },
+            {
+              model: Payment,
+              as: 'payments'
+            }
+          ]
+        })
+      })
+    } catch (error) {
+      console.error('Validate payment error:', error)
+      res.status(500).json({
+        error: 'Erreur lors de la validation du paiement'
+      })
+    }
+  }
+
   // Get order statistics (admin dashboard)
   static async getOrderStats(req, res) {
     try {

@@ -54,7 +54,7 @@ const User = sequelize.define('User', {
   },
   
   role: {
-    type: DataTypes.ENUM('admin', 'customer'),
+    type: DataTypes.ENUM('admin', 'super_admin', 'customer'),
     defaultValue: 'customer',
     allowNull: false
   },
@@ -83,6 +83,37 @@ const User = sequelize.define('User', {
   avatar: {
     type: DataTypes.STRING,
     allowNull: true
+  },
+  
+  // Security and tracking fields
+  last_activity: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  
+  last_ip: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  
+  last_user_agent: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  
+  password_changed_at: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  
+  locked_until: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  
+  login_attempts: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
   }
 }, {
   tableName: 'users',
@@ -115,6 +146,36 @@ User.prototype.getFullName = function() {
   return `${this.first_name} ${this.last_name}`
 }
 
+User.prototype.isAccountLocked = function() {
+  return this.locked_until && new Date(this.locked_until) > new Date()
+}
+
+User.prototype.incrementLoginAttempts = async function() {
+  // If we have a previous lock and it's expired, restart at 1
+  if (this.locked_until && this.locked_until <= new Date()) {
+    return await this.update({
+      login_attempts: 1,
+      locked_until: null
+    })
+  }
+  
+  const updates = { login_attempts: this.login_attempts + 1 }
+  
+  // Lock account after 5 failed attempts for 1 hour
+  if (updates.login_attempts >= 5) {
+    updates.locked_until = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
+  }
+  
+  return await this.update(updates)
+}
+
+User.prototype.resetLoginAttempts = async function() {
+  return await this.update({
+    login_attempts: 0,
+    locked_until: null
+  })
+}
+
 // Class methods
 User.hashPassword = async function(password) {
   const saltRounds = 12
@@ -131,6 +192,7 @@ User.beforeCreate(async (user) => {
 User.beforeUpdate(async (user) => {
   if (user.changed('password')) {
     user.password = await User.hashPassword(user.password)
+    user.password_changed_at = new Date()
   }
 })
 

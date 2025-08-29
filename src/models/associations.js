@@ -8,6 +8,7 @@ const Payment = require('./Payment')
 const ContactMessage = require('./ContactMessage')
 const Newsletter = require('./Newsletter')
 const EmailCampaign = require('./EmailCampaign')
+const Setting = require('./Setting')
 
 // Category associations
 Category.hasMany(Category, {
@@ -96,5 +97,6 @@ module.exports = {
   Payment,
   ContactMessage,
   Newsletter,
-  EmailCampaign
+  EmailCampaign,
+  Setting
 }

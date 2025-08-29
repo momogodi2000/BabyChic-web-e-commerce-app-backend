@@ -1,6 +1,7 @@
 const express = require('express')
 const { authMiddleware, adminMiddleware } = require('../middleware/auth')
 const ProductsController = require('../controllers/productsController')
+const BulkUploadController = require('../controllers/bulkUploadController')
 
 const router = express.Router()
 
@@ -37,5 +38,20 @@ router.delete('/:id', ProductsController.deleteProduct)
 // @desc    Upload product images
 // @access  Private (Admin)
 router.post('/:id/images', ProductsController.uploadImages, ProductsController.handleImageUpload)
+
+// @route   POST /api/products/bulk-upload
+// @desc    Bulk upload products from CSV
+// @access  Private (Admin)
+router.post('/bulk-upload', BulkUploadController.upload.single('csvFile'), BulkUploadController.processBulkUpload)
+
+// @route   GET /api/products/bulk-upload/template
+// @desc    Download CSV template for bulk upload
+// @access  Private (Admin)
+router.get('/bulk-upload/template', BulkUploadController.downloadTemplate)
+
+// @route   GET /api/products/bulk-upload/history
+// @desc    Get bulk upload history
+// @access  Private (Admin)
+router.get('/bulk-upload/history', BulkUploadController.getUploadHistory)
 
 module.exports = router

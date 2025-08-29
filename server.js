@@ -13,6 +13,20 @@ const categoryRoutes = require('./src/routes/categories')
 const orderRoutes = require('./src/routes/orders')
 const paymentRoutes = require('./src/routes/payments')
 const publicRoutes = require('./src/routes/public')
+const adminRoutes = require('./src/routes/admin')
+
+// Import security middleware
+const {
+  generalLimiter,
+  authLimiter,
+  contactLimiter,
+  newsletterLimiter,
+  paymentLimiter,
+  speedLimiter,
+  securityHeaders,
+  requestSizeLimiter,
+  suspiciousActivityDetector
+} = require('./src/middleware/rateLimiter')
 
 // Import database
 const sequelize = require('./src/config/database')
@@ -26,6 +40,7 @@ const DatabaseOptimizations = require('./src/utils/databaseOptimizations')
 const app = express()
 
 // Security middleware
+app.use(securityHeaders)
 app.use(helmet({
   crossOriginEmbedderPolicy: false,
   contentSecurityPolicy: {
@@ -35,10 +50,16 @@ app.use(helmet({
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
       scriptSrc: ["'self'"],
-      connectSrc: ["'self'", "https://api.babychic.cm"]
+      connectSrc: ["'self'", "https://api.babychic.cm", "https://api.noupai.com", "https://api.campay.net"]
     }
   }
 }))
+
+// Suspicious activity detection
+app.use(suspiciousActivityDetector)
+
+// Request size limiting
+app.use(requestSizeLimiter('10mb'))
 
 // CORS configuration
 const corsOptions = {
@@ -63,17 +84,9 @@ const corsOptions = {
 }
 app.use(cors(corsOptions))
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
-  message: {
-    error: 'Trop de requêtes depuis cette adresse IP, veuillez réessayer plus tard.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false
-})
-app.use('/api/', limiter)
+// General rate limiting and speed control
+app.use('/api/', generalLimiter)
+app.use('/api/', speedLimiter)
 
 // Logging
 if (process.env.NODE_ENV === 'development') {
@@ -99,12 +112,15 @@ app.get('/health', (req, res) => {
   })
 })
 
-// API Routes
-app.use('/api/auth', authRoutes)
+// API Routes with specific rate limiting
+app.use('/api/auth', authLimiter, authRoutes)
 app.use('/api/products', productRoutes)
 app.use('/api/categories', categoryRoutes)
 app.use('/api/orders', orderRoutes)
-app.use('/api/payments', paymentRoutes)
+app.use('/api/payments', paymentLimiter, paymentRoutes)
+app.use('/api/admin', adminRoutes)
+app.use('/api/public/contact', contactLimiter)
+app.use('/api/public/newsletter', newsletterLimiter)
 app.use('/api/public', publicRoutes)
 
 // Error handling middleware
